@@ -103,7 +103,6 @@ func main() {
 	if err != nil {
 		printUsageErrorAndExit(3, err)
 	}
-	defer check.Done()
 
 	check.CheckValue(val)
 	check.AddPerfData(nagios.NewPerfData(metricName, val, ""))
