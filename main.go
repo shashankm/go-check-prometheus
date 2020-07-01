@@ -30,7 +30,7 @@ The purpose of this tool is to check that the value given by a prometheus
 query falls within certain warning and critical thresholds. Warning and
 critical ranges can be provided in Nagios threshold format.
 Example:
-check-prometheus -g localhost -H 'my.host' -q 'query' -w 10 -c 100
+check-prometheus -H 'my.host' -q 'query' -w 10 -c 100
 Meaning: The sum of all non-null values returned by the Prometheus query
 'my.metric' is OK if less than or equal to 10, warning if greater than
 10 but less than or equal to 100, critical if greater than 100. If it's
@@ -75,7 +75,13 @@ func main() {
 		fmt.Printf("Error creating client: %v\n", err)
 		os.Exit(1)
 	}
+
 	check, err := nagios.NewRangeCheckParse(warning, critical)
+	if err != nil {
+		printUsageErrorAndExit(3, err)
+	}
+	defer check.Done()
+
 	v1api := v1.NewAPI(client)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
@@ -89,7 +95,7 @@ func main() {
 	}
 	vec := result.(model.Vector)
 	if len(result.String()) == 0 {
-		check.Unknown("OK: The query did not return any result")
+		check.Unknown("The query did not return any result")
 		return
 	}
 	valStr := vec[0].Value.String()
