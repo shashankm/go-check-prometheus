@@ -23,8 +23,6 @@ var (
 	metricName string
 	query      string
 	timeout    int
-	// username     string
-	// password     string
 )
 
 const usage string = `usage: check-prometheus [options]
@@ -90,7 +88,6 @@ func main() {
 		fmt.Printf("Warnings: %v\n", warnings)
 	}
 	vec := result.(model.Vector)
-	// fmt.Println(result.String())
 	if len(result.String()) == 0 {
 		check.Unknown("OK: The query did not return any result")
 		return
@@ -106,11 +103,6 @@ func main() {
 	check.AddPerfData(nagios.NewPerfData(metricName, val, ""))
 	check.SetMessage("%s (%s is %s)", metricName, vec[0].Metric, valStr)
 
-}
-
-type data struct {
-	status string
-	data   string
 }
 
 func checkRequiredOptions() error {
