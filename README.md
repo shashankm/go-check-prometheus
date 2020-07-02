@@ -27,3 +27,11 @@ Options:
   -t, --timeout int       Execution timeout (default 10)
   -w, --warning string    warning range
 ```
+
+## Contributors
+
+* Shashank Mathur (@shashankm)
+
+## License
+
+This project is released under the MIT license. See LICENSE for details.
