@@ -25,7 +25,7 @@ var (
 	timeout    int
 )
 
-const usage string = `usage: check-prometheus [options]
+const usage string = `usage: go-check-prometheus [options]
 The purpose of this tool is to check that the value given by a prometheus
 query falls within certain warning and critical thresholds. Warning and
 critical ranges can be provided in Nagios threshold format.
@@ -116,8 +116,10 @@ func checkRequiredOptions() error {
 		return fmt.Errorf("host is required")
 	case query == "":
 		return fmt.Errorf("query is required")
-	case warning == "" && critical == "":
-		return fmt.Errorf("must supply at least one of -w or -c")
+	case warning == "":
+		return fmt.Errorf("warning is required")
+	case critical == "":
+		return fmt.Errorf("critical is required")
 	}
 	return nil
 }
