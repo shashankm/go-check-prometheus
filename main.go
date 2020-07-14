@@ -30,7 +30,7 @@ The purpose of this tool is to check that the value given by a prometheus
 query falls within certain warning and critical thresholds. Warning and
 critical ranges can be provided in Nagios threshold format.
 Example:
-check-prometheus -H 'my.host' -q 'query' -w 10 -c 100
+go-check-prometheus -H 'my.host' -q 'query' -w 10 -c 100
 Meaning: The sum of all non-null values returned by the Prometheus query
 'my.metric' is OK if less than or equal to 10, warning if greater than
 10 but less than or equal to 100, critical if greater than 100. If it's
@@ -77,6 +77,7 @@ func main() {
 	}
 
 	check, err := nagios.NewRangeCheckParse(warning, critical)
+
 	if err != nil {
 		printUsageErrorAndExit(3, err)
 	}
@@ -87,26 +88,48 @@ func main() {
 	defer cancel()
 	result, warnings, err := v1api.Query(ctx, query, time.Now())
 	if err != nil {
-		fmt.Printf("Error querying Prometheus: %v\n", err)
-		os.Exit(1)
+		check.Unknown("Error querying Prometheus: %v", err)
+		return
 	}
 	if len(warnings) > 0 {
 		fmt.Printf("Warnings: %v\n", warnings)
 	}
 	vec := result.(model.Vector)
+
 	if len(result.String()) == 0 {
 		check.Unknown("The query did not return any result")
 		return
 	}
-	valStr := vec[0].Value.String()
+
+	var finalExitStatus int
+	var outputCheckIdx int
+
+	// If multiple metrics returned, this will return metric with a non-OK status
+	for metricIdx, metric := range vec {
+		fmt.Println("")
+		checkVal := float64(metric.Value)
+		check.CheckValue(checkVal)
+		//Keep looping if WARN and UNKNOWN, break if CRIT is found otherwise set largest non-OK check status
+		if check.Status.ExitCode == 2 {
+			outputCheckIdx = metricIdx
+			break
+		} else if check.Status.ExitCode > finalExitStatus {
+			finalExitStatus = check.Status.ExitCode
+			outputCheckIdx = metricIdx
+		}
+	}
+
+	outputCheck := vec[outputCheckIdx]
+	valStr := outputCheck.Value.String()
+
 	val, _ := strconv.ParseFloat(valStr, 64)
 	if err != nil {
 		printUsageErrorAndExit(3, err)
 	}
 
 	check.CheckValue(val)
-	check.AddPerfData(nagios.NewPerfData(metricName, val, ""))
-	check.SetMessage("%s (%s is %s)", metricName, vec[0].Metric, valStr)
+	check.AddPerfData(nagios.NewPerfData(vec.String(), val, ""))
+	check.SetMessage("%s (%s is %s)", metricName, outputCheck.Metric, valStr)
 
 }
 
