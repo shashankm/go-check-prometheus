@@ -105,7 +105,6 @@ func main() {
 	if len(warnings) > 0 {
 		fmt.Printf("Warnings: %v\n", warnings)
 	}
-	vec := result.(model.Vector)
 
 	if len(result.String()) == 0 {
 		switch emptyResult {
@@ -122,7 +121,18 @@ func main() {
 		return
 	}
 
-	checkVector(c, vec, critical, warning)
+	if result.Type().String() == "vector" {
+		vec := result.(model.Vector)
+		checkVector(c, vec, critical, warning)
+	} else if result.Type().String() == "scalar" {
+		vec := result.(*model.Scalar)
+		val := float64(vec.Value)
+		checkScalar(c, val, critical, warning)
+	} else {
+		unsupportedType := fmt.Errorf("return type should be either instant vector or scalar")
+		c.Unknown("Error parsing Result: %v", unsupportedType)
+		return
+	}
 }
 
 func checkRequiredOptions() error {

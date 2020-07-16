@@ -2,13 +2,14 @@ package main
 
 import (
 	"fmt"
+	"math"
 	"strings"
 
 	"github.com/prometheus/common/model"
 	"github.com/segfaultax/go-nagios"
 )
 
-func checkVector(c *nagios.Check, promVec model.Vector, critThreshold string, warnThreshold string) {
+func checkVector(c *nagios.Check, promVec model.Vector, critThreshold, warnThreshold string) {
 	crit, _ := nagios.ParseRange(critThreshold)
 	warn, _ := nagios.ParseRange(warnThreshold)
 
@@ -50,4 +51,21 @@ func checkVector(c *nagios.Check, promVec model.Vector, critThreshold string, wa
 
 	c.Status = exit
 	c.SetMessage(strings.Join(msgs, ", "))
+}
+
+func checkScalar(c *nagios.Check, scalarRes float64, critThreshold, warnThreshold string) {
+	crit, _ := nagios.ParseRange(critThreshold)
+	warn, _ := nagios.ParseRange(warnThreshold)
+
+	if crit.InRange(scalarRes) {
+		c.Critical("%v is more than the critical thredshold", scalarRes)
+	} else if warn.InRange(scalarRes) {
+		c.Warning("%v is more than the warning thredshold", scalarRes)
+	} else if math.IsNaN(scalarRes) {
+		c.Unknown("NaN value returned")
+	} else {
+		c.OK("returned %v", scalarRes)
+	}
+
+	c.AddPerfData(nagios.NewPerfData("scalar", scalarRes, ""))
 }
