@@ -4,25 +4,24 @@ import (
 	"context"
 	"fmt"
 	"os"
-	"strconv"
 	"strings"
 	"time"
 
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
-	"github.com/prometheus/common/model"
 	"github.com/segfaultax/go-nagios"
 	"github.com/spf13/pflag"
 )
 
 var (
-	showHelp   bool
-	warning    string
-	critical   string
-	host       string
-	metricName string
-	query      string
-	timeout    int
+	showHelp    bool
+	warning     string
+	critical    string
+	host        string
+	metricName  string
+	query       string
+	emptyResult string
+	timeout     int
 )
 
 const usage string = `usage: go-check-prometheus [options]
@@ -30,9 +29,9 @@ The purpose of this tool is to check that the value given by a prometheus
 query falls within certain warning and critical thresholds. Warning and
 critical ranges can be provided in Nagios threshold format.
 Example:
-check-prometheus -H 'my.host' -q 'query' -w 10 -c 100
+go-check-prometheus -H 'my.host' -q 'query' -w 10 -c 100
 Meaning: The sum of all non-null values returned by the Prometheus query
-'my.metric' is OK if less than or equal to 10, warning if greater than
+'query' is OK if less than or equal to 10, warning if greater than
 10 but less than or equal to 100, critical if greater than 100. If it's
 less than zero, it's critical.
 ullcnt / total points)
@@ -44,6 +43,7 @@ func init() {
 
 	pflag.StringVarP(&warning, "warning", "w", "", "warning range")
 	pflag.StringVarP(&critical, "critical", "c", "", "critical range")
+	pflag.StringVarP(&emptyResult, "empty", "e", "unknown", "exit status if query returns empty result. Can be one of ok, crit, warn or unknown")
 
 	pflag.StringVarP(&metricName, "name", "n", "metric", "Short, descriptive name for metric")
 	pflag.StringVarP(&query, "query", "q", "", "prometheus query")
@@ -68,6 +68,20 @@ func main() {
 		host = "http://" + host
 	}
 
+	validStatus := map[string]bool{
+		"ok":      true,
+		"crit":    true,
+		"unknown": true,
+		"warn":    true,
+	}
+
+	emptyResult = strings.ToLower(emptyResult)
+
+	if !validStatus[emptyResult] {
+		invalidStatus := fmt.Errorf("empty needs to be one of ok, crit, warn or unknown")
+		printUsageErrorAndExit(3, invalidStatus)
+	}
+
 	client, err := api.NewClient(api.Config{
 		Address: host,
 	})
@@ -76,38 +90,42 @@ func main() {
 		os.Exit(1)
 	}
 
-	check, err := nagios.NewRangeCheckParse(warning, critical)
+	c, err := nagios.NewRangeCheckParse(warning, critical)
+
 	if err != nil {
 		printUsageErrorAndExit(3, err)
 	}
-	defer check.Done()
+
+	defer c.Done()
 
 	v1api := v1.NewAPI(client)
 	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
 	defer cancel()
 	result, warnings, err := v1api.Query(ctx, query, time.Now())
 	if err != nil {
-		fmt.Printf("Error querying Prometheus: %v\n", err)
-		os.Exit(1)
+		c.Unknown("Error querying Prometheus: %v", err)
+		return
 	}
 	if len(warnings) > 0 {
 		fmt.Printf("Warnings: %v\n", warnings)
 	}
-	vec := result.(model.Vector)
+
 	if len(result.String()) == 0 {
-		check.Unknown("The query did not return any result")
+		switch emptyResult {
+		case "ok":
+			c.Status = nagios.StatusOK
+		case "crit":
+			c.Status = nagios.StatusCrit
+		case "warn":
+			c.Status = nagios.StatusWarn
+		default:
+			c.Status = nagios.StatusUnknown
+		}
+		c.SetMessage("The query did not return any result")
 		return
 	}
-	valStr := vec[0].Value.String()
-	val, _ := strconv.ParseFloat(valStr, 64)
-	if err != nil {
-		printUsageErrorAndExit(3, err)
-	}
 
-	check.CheckValue(val)
-	check.AddPerfData(nagios.NewPerfData(metricName, val, ""))
-	check.SetMessage("%s (%s is %s)", metricName, vec[0].Metric, valStr)
-
+	runCheck(c, result)
 }
 
 func checkRequiredOptions() error {
