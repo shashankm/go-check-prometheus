@@ -9,7 +9,6 @@ import (
 
 	"github.com/prometheus/client_golang/api"
 	v1 "github.com/prometheus/client_golang/api/prometheus/v1"
-	"github.com/prometheus/common/model"
 	"github.com/segfaultax/go-nagios"
 	"github.com/spf13/pflag"
 )
@@ -90,7 +89,12 @@ func main() {
 		fmt.Printf("Error creating client: %v\n", err)
 		os.Exit(1)
 	}
-	c := nagios.NewCheck()
+
+	c, err := nagios.NewRangeCheckParse(warning, critical)
+
+	if err != nil {
+		printUsageErrorAndExit(3, err)
+	}
 
 	defer c.Done()
 
@@ -121,18 +125,7 @@ func main() {
 		return
 	}
 
-	if result.Type().String() == "vector" {
-		vec := result.(model.Vector)
-		checkVector(c, vec, critical, warning)
-	} else if result.Type().String() == "scalar" {
-		vec := result.(*model.Scalar)
-		val := float64(vec.Value)
-		checkScalar(c, val, critical, warning)
-	} else {
-		unsupportedType := fmt.Errorf("return type should be either instant vector or scalar")
-		c.Unknown("Error parsing Result: %v", unsupportedType)
-		return
-	}
+	runCheck(c, result)
 }
 
 func checkRequiredOptions() error {

@@ -9,9 +9,24 @@ import (
 	"github.com/segfaultax/go-nagios"
 )
 
-func checkVector(c *nagios.Check, promVec model.Vector, critThreshold, warnThreshold string) {
-	crit, _ := nagios.ParseRange(critThreshold)
-	warn, _ := nagios.ParseRange(warnThreshold)
+func runCheck(c *nagios.RangeCheck, pqlResult model.Value) {
+	if pqlResult.Type().String() == "vector" {
+		vec := pqlResult.(model.Vector)
+		checkVector(c, vec)
+	} else if pqlResult.Type().String() == "scalar" {
+		vec := pqlResult.(*model.Scalar)
+		val := float64(vec.Value)
+		checkScalar(c, val)
+	} else {
+		unsupportedType := fmt.Errorf("return type should be either instant vector or scalar")
+		c.Unknown("Error parsing Result: %v", unsupportedType)
+		return
+	}
+}
+
+func checkVector(c *nagios.RangeCheck, promVec model.Vector) {
+	crit := c.Crit
+	warn := c.Warn
 
 	var oks model.Vector
 	var crits model.Vector
@@ -53,14 +68,14 @@ func checkVector(c *nagios.Check, promVec model.Vector, critThreshold, warnThres
 	c.SetMessage(strings.Join(msgs, ", "))
 }
 
-func checkScalar(c *nagios.Check, scalarRes float64, critThreshold, warnThreshold string) {
-	crit, _ := nagios.ParseRange(critThreshold)
-	warn, _ := nagios.ParseRange(warnThreshold)
+func checkScalar(c *nagios.RangeCheck, scalarRes float64) {
+	crit := c.Crit
+	warn := c.Warn
 
 	if crit.InRange(scalarRes) {
-		c.Critical("%v is more than the critical thredshold", scalarRes)
+		c.Critical("%v is outside the critical thredshold", scalarRes)
 	} else if warn.InRange(scalarRes) {
-		c.Warning("%v is more than the warning thredshold", scalarRes)
+		c.Warning("%v is outside the warning thredshold", scalarRes)
 	} else if math.IsNaN(scalarRes) {
 		c.Unknown("NaN value returned")
 	} else {
