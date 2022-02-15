@@ -3,6 +3,8 @@ package main
 import (
 	"context"
 	"fmt"
+	"net"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -48,7 +50,7 @@ func init() {
 	pflag.StringVarP(&metricName, "name", "n", "metric", "Short, descriptive name for metric")
 	pflag.StringVarP(&query, "query", "q", "", "prometheus query")
 
-	pflag.IntVarP(&timeout, "timeout", "t", 10, "Execution timeout")
+	pflag.IntVarP(&timeout, "timeout", "t", 30, "Execution timeout")
 }
 
 func main() {
@@ -82,8 +84,17 @@ func main() {
 		printUsageErrorAndExit(3, invalidStatus)
 	}
 
+	timeout_duration := time.Duration(timeout)
+
 	client, err := api.NewClient(api.Config{
 		Address: host,
+		RoundTripper: (&http.Transport{
+			DialContext: (&net.Dialer{
+				Timeout: timeout_duration*time.Second,
+				KeepAlive: timeout_duration*time.Second,
+			}).DialContext,
+			TLSHandshakeTimeout: timeout_duration*time.Second,
+		}),
 	})
 	if err != nil {
 		fmt.Printf("Error creating client: %v\n", err)
@@ -99,7 +110,7 @@ func main() {
 	defer c.Done()
 
 	v1api := v1.NewAPI(client)
-	ctx, cancel := context.WithTimeout(context.Background(), time.Duration(timeout)*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), timeout_duration*time.Second)
 	defer cancel()
 	result, warnings, err := v1api.Query(ctx, query, time.Now())
 	if err != nil {
