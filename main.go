@@ -24,6 +24,8 @@ var (
 	query       string
 	emptyResult string
 	timeout     int
+	retry       int
+	interval    int
 )
 
 const usage string = `usage: go-check-prometheus [options]
@@ -51,6 +53,8 @@ func init() {
 	pflag.StringVarP(&query, "query", "q", "", "prometheus query")
 
 	pflag.IntVarP(&timeout, "timeout", "t", 30, "Execution timeout")
+	pflag.IntVarP(&retry, "retry", "r", 0, "No. of times to attempt retry connecting prometheus")
+	pflag.IntVarP(&interval, "interval", "i", 60, "interval in seconds between every retry attempt")
 }
 
 func main() {
@@ -85,15 +89,16 @@ func main() {
 	}
 
 	timeout_duration := time.Duration(timeout)
+	interval_duration := time.Duration(interval)
 
 	client, err := api.NewClient(api.Config{
 		Address: host,
 		RoundTripper: (&http.Transport{
 			DialContext: (&net.Dialer{
-				Timeout: timeout_duration*time.Second,
-				KeepAlive: timeout_duration*time.Second,
+				Timeout:   timeout_duration * time.Second,
+				KeepAlive: timeout_duration * time.Second,
 			}).DialContext,
-			TLSHandshakeTimeout: timeout_duration*time.Second,
+			TLSHandshakeTimeout: timeout_duration * time.Second,
 		}),
 	})
 	if err != nil {
@@ -114,8 +119,48 @@ func main() {
 	defer cancel()
 	result, warnings, err := v1api.Query(ctx, query, time.Now())
 	if err != nil {
-		c.Unknown("Error querying Prometheus: %v", err)
-		return
+		if retry == 0 {
+			c.Unknown("Error querying Prometheus: %v", err)
+			return
+		}
+		t := time.NewTicker(interval_duration * time.Second)
+		defer t.Stop()
+		numberOfAttempts := 0
+	connectionLoop:
+		for {
+			select {
+			case <-t.C:
+				client, err = api.NewClient(api.Config{
+					Address: host,
+					RoundTripper: (&http.Transport{
+						DialContext: (&net.Dialer{
+							Timeout:   timeout_duration * time.Second,
+							KeepAlive: timeout_duration * time.Second,
+						}).DialContext,
+						TLSHandshakeTimeout: timeout_duration * time.Second,
+					}),
+				})
+				v1api = v1.NewAPI(client)
+				ctx, cancel = context.WithTimeout(context.Background(), timeout_duration*time.Second)
+				defer cancel()
+				result, warnings, err = v1api.Query(ctx, query, time.Now())
+				// log.Printf("attempt no. %v", numberOfAttempts+1)
+				numberOfAttempts += 1
+				if err == nil {
+					// log.Println("No more errors now!")
+					break connectionLoop
+				} else if numberOfAttempts >= retry {
+					// log.Println(retry)
+					c.Unknown("Error querying Prometheus: %v", err)
+					// log.Printf("number of attempts %v", numberOfAttempts)
+					return
+				}
+			case <-ctx.Done():
+				break
+			}
+		}
+		// c.Unknown("Error querying Prometheus: %v", err)
+		// return
 	}
 	if len(warnings) > 0 {
 		fmt.Printf("Warnings: %v\n", warnings)
